@@ -1,6 +1,6 @@
-# Protein Structure & Interaction Viewer
+# Protein Structure Viewer
 
-An interactive system for visualizing protein structures and predicting proteinâ€“protein complexes with ranked poses and optional short refinement.
+A simplified AlphaFold-style system for predicting and visualizing protein structures from amino acid sequences with interactive 3D visualization.
 
 ## Features
 
@@ -11,7 +11,6 @@ An interactive system for visualizing protein structures and predicting proteinâ
 - **Protein Information Panel** - Detailed structure statistics and metadata
 - **Responsive Design** - Modern UI that works on desktop and mobile
 - **Real-time Controls** - Interactive rotation, zoom, and color scheme controls
- - **Proteinâ€“Protein Interaction Predictor** - Predict binding poses between two proteins, optional OpenMM relaxation, and rank by BSA, contacts, H-bonds/salt bridges, shape complementarity, and energy
 
 ## Tech Stack
 
@@ -56,7 +55,7 @@ An interactive system for visualizing protein structures and predicting proteinâ
    ```
 
 5. **Open your browser**
-   Navigate to `http://localhost:8000`
+   Navigate to `http://localhost:5000`
 
 ## Usage
 
@@ -116,41 +115,6 @@ GET /api/sample/<sample_name>
 ### List Available Samples
 ```
 GET /api/samples
-
-### Predict Proteinâ€“Protein Interaction
-```
-POST /api/predict_interaction
-Content-Type: application/json
-Body: {
-  "sample_a": "hemoglobin",    // or provide "pdb_a": "...pdb text..."
-  "sample_b": "lysozyme",      // or provide "pdb_b": "...pdb text..."
-  "num_poses": 5,
-  "refine": false
-}
-```
-Response:
-```
-{
-  "success": true,
-  "num_poses": 5,
-  "poses": [
-    {
-      "pose_id": 1,
-      "pdb": "ATOM ... END",
-      "scores": {
-        "confidence": 0.85,
-        "binding_energy": -12.4,
-        "buried_surface_area": 1240.3,
-        "contact_count": 54,
-        "hydrogen_bonds": 7,
-        "salt_bridges": 2,
-        "shape_complementarity": 0.66,
-        "final_score": 830.2
-      }
-    }
-  ]
-}
-```
 ```
 
 ## File Structure
@@ -246,11 +210,6 @@ WebGL support is required for 3D visualization.
    - Verify `sample_data/` directory exists
    - Check file permissions
    - Restart the Flask server
-
-4. **Performance with Large Structures**
-   - Large protein structures (>10,000 atoms) may load slowly
-   - Use cartoon representation for better performance with large structures
-   - Complex pose generation may take several seconds
 
 ### Performance Tips
 

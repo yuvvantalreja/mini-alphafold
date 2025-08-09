@@ -3,7 +3,6 @@ const { useState, useEffect, useRef, useCallback } = React;
 // Main App Component
 function App() {
     const [proteinData, setProteinData] = useState(null);
-    const [complexPDB, setComplexPDB] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [success, setSuccess] = useState(null);
@@ -11,14 +10,10 @@ function App() {
     const [colorScheme, setColorScheme] = useState('spectrum');
     const [samples, setSamples] = useState([]);
     const [uploadedFileName, setUploadedFileName] = useState(null);
-    const [poses, setPoses] = useState([]);
-    const [selectedPoseId, setSelectedPoseId] = useState(null);
-    const [interactionAvailable, setInteractionAvailable] = useState(false);
 
-    // Load sample proteins and check interaction availability on component mount
+    // Load sample proteins on component mount
     useEffect(() => {
         fetchSamples();
-        checkInteractionAvailability();
     }, []);
 
     const fetchSamples = async () => {
@@ -28,17 +23,6 @@ function App() {
             setSamples(data.samples || []);
         } catch (err) {
             console.error('Failed to load samples:', err);
-        }
-    };
-
-    const checkInteractionAvailability = async () => {
-        try {
-            const response = await fetch('/api/interaction_available');
-            const data = await response.json();
-            setInteractionAvailable(data.available || false);
-        } catch (err) {
-            console.error('Failed to check interaction availability:', err);
-            setInteractionAvailable(false);
         }
     };
 
@@ -68,9 +52,6 @@ function App() {
                 setProteinData(data.structure);
                 setUploadedFileName(data.filename);
                 setSuccess(`Successfully loaded ${data.filename}`);
-                setComplexPDB(null);
-                setPoses([]);
-                setSelectedPoseId(null);
             } else {
                 setError(data.error || 'Failed to upload file');
             }
@@ -93,9 +74,6 @@ function App() {
                 setProteinData(data.structure);
                 setUploadedFileName(data.filename);
                 setSuccess(`Successfully loaded ${data.filename}`);
-                setComplexPDB(null);
-                setPoses([]);
-                setSelectedPoseId(null);
             } else {
                 setError(data.error || 'Failed to load sample');
             }
@@ -125,12 +103,6 @@ function App() {
                 loading={loading}
                 error={error}
                 success={success}
-                poses={poses}
-                setPoses={setPoses}
-                selectedPoseId={selectedPoseId}
-                setSelectedPoseId={setSelectedPoseId}
-                setComplexPDB={setComplexPDB}
-                interactionAvailable={interactionAvailable}
             />
             
             <ProteinViewer
@@ -138,100 +110,7 @@ function App() {
                 visualizationStyle={visualizationStyle}
                 colorScheme={colorScheme}
                 loading={loading}
-                complexPDB={complexPDB}
             />
-        </div>
-    );
-}
-
-// Interaction Predictor Component
-function InteractionPredictor({ proteinData, samples, disabled, poses, setPoses, onResults, onSelectPose }) {
-    const [sampleA, setSampleA] = useState('');
-    const [sampleB, setSampleB] = useState('');
-    const [refine, setRefine] = useState(false);
-    const [numPoses, setNumPoses] = useState(5);
-    const [submitting, setSubmitting] = useState(false);
-
-    const canSubmit = sampleA && sampleB && !disabled && !submitting;
-
-    const predict = async () => {
-        if (!canSubmit) return;
-        setSubmitting(true);
-        try {
-            const res = await fetch('/api/predict_interaction', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sample_a: sampleA, sample_b: sampleB, refine, num_poses: Number(numPoses) })
-            });
-            const data = await res.json();
-            if (data.success) {
-                setPoses(data.poses || []);
-                onResults && onResults(data.poses || []);
-            } else {
-                alert(data.error || 'Prediction failed');
-            }
-        } catch (e) {
-            alert('Network error: ' + e.message);
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    return (
-        <div className="sidebar-section">
-            <h3>
-                <i className="fas fa-project-diagram"></i>
-                Interaction Predictor
-            </h3>
-
-            <div className="control-group">
-                <label>Protein A</label>
-                <select value={sampleA} onChange={(e) => setSampleA(e.target.value)} disabled={disabled || submitting} style={{ width: '100%', padding: '0.5rem' }}>
-                    <option value="">Select sample...</option>
-                    {samples.map(s => (
-                        <option key={s.name} value={s.name}>{s.title}</option>
-                    ))}
-                </select>
-            </div>
-
-            <div className="control-group">
-                <label>Protein B</label>
-                <select value={sampleB} onChange={(e) => setSampleB(e.target.value)} disabled={disabled || submitting} style={{ width: '100%', padding: '0.5rem' }}>
-                    <option value="">Select sample...</option>
-                    {samples.map(s => (
-                        <option key={s.name} value={s.name}>{s.title}</option>
-                    ))}
-                </select>
-            </div>
-
-            <div className="control-group" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                <label style={{ margin: 0 }}>Num Poses</label>
-                <input type="number" min="1" max="10" value={numPoses} onChange={(e) => setNumPoses(e.target.value)} disabled={disabled || submitting} style={{ width: '80px' }} />
-                <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <input type="checkbox" checked={refine} onChange={(e) => setRefine(e.target.checked)} disabled={disabled || submitting} />
-                    Short refinement
-                </label>
-            </div>
-
-            <button className={`btn ${canSubmit ? '' : 'btn-secondary'}`} onClick={predict} disabled={!canSubmit}>
-                {submitting ? 'Predicting...' : 'Predict Interaction'}
-            </button>
-
-            {poses && poses.length > 0 && (
-                <div style={{ marginTop: '1rem' }}>
-                    <h4 style={{ fontSize: '0.9rem', marginBottom: '0.5rem' }}>Poses</h4>
-                    <div className="sample-list">
-                        {poses.map((p) => (
-                            <div key={p.pose_id} className="sample-item" onClick={() => onSelectPose && onSelectPose(p)}>
-                                <h4>Pose {p.pose_id}</h4>
-                                <p>Confidence: {p.scores.confidence.toFixed(2)}</p>
-                                <p>Energy: {p.scores.binding_energy.toFixed(2)} kcal/mol</p>
-                                <p>Score: {p.scores.final_score.toFixed(1)}</p>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
         </div>
     );
 }
@@ -273,13 +152,7 @@ function Sidebar({
     onSampleLoad,
     loading,
     error,
-    success,
-    poses,
-    setPoses,
-    selectedPoseId,
-    setSelectedPoseId,
-    setComplexPDB,
-    interactionAvailable
+    success
 }) {
     return (
         <div className="sidebar">
@@ -317,23 +190,6 @@ function Sidebar({
                     <ProteinInfo proteinData={proteinData} />
                 </>
             )}
-
-            <InteractionPredictor
-                proteinData={proteinData}
-                samples={samples}
-                disabled={loading}
-                poses={poses}
-                setPoses={setPoses}
-                onResults={(results) => {
-                    const sorted = [...results].sort((a,b) => b.scores.final_score - a.scores.final_score);
-                    setSelectedPoseId(sorted[0]?.pose_id || null);
-                    setComplexPDB(sorted[0]?.pdb || null);
-                }}
-                onSelectPose={(pose) => {
-                    setSelectedPoseId(pose.pose_id);
-                    setComplexPDB(pose.pdb);
-                }}
-            />
         </div>
     );
 }
@@ -590,12 +446,10 @@ function ProteinInfo({ proteinData }) {
 }
 
 // Protein Viewer Component
-function ProteinViewer({ proteinData, visualizationStyle, colorScheme, loading, complexPDB }) {
+function ProteinViewer({ proteinData, visualizationStyle, colorScheme, loading }) {
     const viewerRef = useRef();
     const molViewerRef = useRef();
     const currentModelRef = useRef();
-    const complexModelRef = useRef();
-    const complexPDBRef = useRef(null);
 
     // Initialize 3Dmol viewer
     useEffect(() => {
@@ -618,14 +472,10 @@ function ProteinViewer({ proteinData, visualizationStyle, colorScheme, loading, 
 
     // Update visualization style when style or color changes
     useEffect(() => {
-        if (!molViewerRef.current) return;
-        if (complexPDBRef.current) {
-            applyVisualizationStyle(complexModelRef.current, visualizationStyle, colorScheme);
-        }
-        if (currentModelRef.current) {
+        if (molViewerRef.current && currentModelRef.current && proteinData) {
             applyVisualizationStyle(currentModelRef.current, visualizationStyle, colorScheme);
+            molViewerRef.current.render();
         }
-        molViewerRef.current.render();
     }, [visualizationStyle, colorScheme]);
 
     const loadProteinData = () => {
@@ -635,8 +485,6 @@ function ProteinViewer({ proteinData, visualizationStyle, colorScheme, loading, 
         // Clear existing models
         viewer.clear();
         currentModelRef.current = null;
-        complexModelRef.current = null;
-        complexPDBRef.current = null;
 
         try {
             // Convert our protein data to PDB format for 3Dmol
@@ -656,27 +504,6 @@ function ProteinViewer({ proteinData, visualizationStyle, colorScheme, loading, 
             console.error('Error loading protein:', error);
         }
     };
-
-    // Load complex PDB (combination of two proteins in a pose)
-    useEffect(() => {
-        const viewer = molViewerRef.current;
-        if (!viewer) return;
-        if (!complexPDB) return;
-
-        try {
-            // Clear existing and add complex only
-            viewer.clear();
-            currentModelRef.current = null;
-            const model = viewer.addModel(complexPDB, 'pdb');
-            complexModelRef.current = model;
-            complexPDBRef.current = complexPDB;
-            applyVisualizationStyle(model, visualizationStyle, colorScheme);
-            viewer.zoomTo();
-            viewer.render();
-        } catch (e) {
-            console.error('Failed to render complex pose:', e);
-        }
-    }, [complexPDB]);
 
     const convertToPDBFormat = (data) => {
         let pdbLines = [];
@@ -819,7 +646,7 @@ function ProteinViewer({ proteinData, visualizationStyle, colorScheme, loading, 
                     position: 'relative'
                 }}
             >
-                {!proteinData && !complexPDBRef.current && (
+                {!proteinData && (
                     <div className="loading">
                         <i className="fas fa-dna" style={{ fontSize: '3rem', marginBottom: '1rem' }}></i>
                         <p>Upload a PDB file or select a sample to begin</p>
@@ -827,7 +654,7 @@ function ProteinViewer({ proteinData, visualizationStyle, colorScheme, loading, 
                 )}
             </div>
             
-            {(proteinData || complexPDBRef.current) && (
+            {proteinData && (
                 <div className="viewer-controls">
                     <button 
                         className="btn"
