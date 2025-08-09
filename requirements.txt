@@ -10,7 +10,7 @@ requests>=2.25.0
 werkzeug>=2.0.0
 
 # Molecular Docking Dependencies
-vina>=1.2.5
+# vina>=1.2.5
 rdkit>=2023.3.1
 meeko>=0.5.0
 pdbfixer>=1.9
