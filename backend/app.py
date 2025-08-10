@@ -478,6 +478,8 @@ def list_samples():
 def chat():
     data = request.get_json()
     user_message = data.get('message', '')
+    provided_seq = (data.get('sequence') or '').upper()
+    provided_props = data.get('simProps') or None
     # If the message looks like or contains a protein sequence, augment context with similarity results
     context = None
     # Find longest AA-only substring (ACDEFGHIKLMNPQRSTVWY) length >= 10
@@ -491,16 +493,65 @@ def chat():
             logger.info(json.dumps({'event': 'chat.similarity.start', 'rid': rid, 'len': len(seq_candidate), 'sha1': _seq_sha1(seq_candidate), 'preview': _seq_preview(seq_candidate)}))
             hits_json, props = rcsb_similarity_top3(seq_candidate, request_id=rid)
             logger.info(json.dumps({'event': 'chat.similarity.ok', 'rid': rid, 'hits': len(hits_json)}))
-            context = (
-                f"Similarity results for query (length {len(seq_candidate)}):\n"
-                f"Top hits: {hits_json}\n"
-                f"Top-hit properties: {props}\n"
-                f"Use this as background; respond concisely and do not over-claim."
-            )
+            # Build concise one-line context with requested format
+            if props:
+                length = props.get('length')
+                mass = props.get('mass_Da')
+                hydro = props.get('hydropathy_KD')
+                charge = props.get('net_charge_pH7_approx')
+                aromatic = props.get('aromatic_count')
+                # Format numeric values compactly
+                mass_s = f"{mass:.2f}" if isinstance(mass, (int, float)) else str(mass)
+                hydro_s = f"{hydro:.3f}" if isinstance(hydro, (int, float)) else str(hydro)
+                charge_s = f"{charge:.1f}" if isinstance(charge, (int, float)) else str(charge)
+                context = (
+                    f"Protein: {seq_candidate},  Top-hit properties "
+                    f"Length {length} Mass {mass_s} Da Hydropathy {hydro_s} "
+                    f"Net charge ~pH7 {charge_s} Aromatic {aromatic}"
+                )
+            else:
+                context = f"Protein: {seq_candidate}"
         except Exception as e:
             logger.error(json.dumps({'event': 'chat.similarity.error', 'error': str(e)}))
             context = f"Similarity search error: {e}"
-    return jsonify({'response': chatbot.ChatBot(user_message, context=context)})
+    elif provided_seq and is_valid_protein_sequence(provided_seq) and (provided_props or 10 <= len(provided_seq) <= 100):
+        # Fallback: use provided sequence and props from client if available
+        try:
+            if provided_props and isinstance(provided_props, dict):
+                length = provided_props.get('length')
+                mass = provided_props.get('mass_Da')
+                hydro = provided_props.get('hydropathy_KD')
+                charge = provided_props.get('net_charge_pH7_approx')
+                aromatic = provided_props.get('aromatic_count')
+                mass_s = f"{mass:.2f}" if isinstance(mass, (int, float)) else str(mass)
+                hydro_s = f"{hydro:.3f}" if isinstance(hydro, (int, float)) else str(hydro)
+                charge_s = f"{charge:.1f}" if isinstance(charge, (int, float)) else str(charge)
+                context = (
+                    f"Protein: {provided_seq},  Top-hit properties "
+                    f"Length {length} Mass {mass_s} Da Hydropathy {hydro_s} "
+                    f"Net charge ~pH7 {charge_s} Aromatic {aromatic}"
+                )
+            else:
+                # If we only have a sequence, try to run a quick similarity search to get properties
+                rid = uuid.uuid4().hex[:8]
+                logger.info(json.dumps({'event': 'chat.similarity.start.fallback', 'rid': rid, 'len': len(provided_seq), 'sha1': _seq_sha1(provided_seq), 'preview': _seq_preview(provided_seq)}))
+                _, props2 = rcsb_similarity_top3(provided_seq, request_id=rid)
+                if props2:
+                    mass = props2.get('mass_Da'); hydro = props2.get('hydropathy_KD'); charge = props2.get('net_charge_pH7_approx')
+                    mass_s = f"{mass:.2f}" if isinstance(mass, (int, float)) else str(mass)
+                    hydro_s = f"{hydro:.3f}" if isinstance(hydro, (int, float)) else str(hydro)
+                    charge_s = f"{charge:.1f}" if isinstance(charge, (int, float)) else str(charge)
+                    context = (
+                        f"Protein: {provided_seq},  Top-hit properties "
+                        f"Length {props2.get('length')} Mass {mass_s} Da Hydropathy {hydro_s} "
+                        f"Net charge ~pH7 {charge_s} Aromatic {props2.get('aromatic_count')}"
+                    )
+                else:
+                    context = f"Protein: {provided_seq}"
+        except Exception as e:
+            logger.error(json.dumps({'event': 'chat.similarity.error.fallback', 'error': str(e)}))
+            context = f"Protein: {provided_seq}"
+    return jsonify({'response': chatbot.ChatBot(user_message, context=context), 'context': context})
     #return jsonify({'response': "Wasgood"})
 
 @app.route('/api/similarity', methods=['POST'])
