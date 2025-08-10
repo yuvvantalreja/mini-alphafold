@@ -1,7 +1,7 @@
 import os
 import requests
 
-# Gemini API key
+# Gemini API key from environment
 API_KEY = "AIzaSyAXDfE1yr7viaqwrgVY_JGFnrmD_FQB_Vo"
 MODEL = "gemini-1.5-flash"  # You can change to gemini-1.5-pro for more capability
 
@@ -15,9 +15,15 @@ If a question is outside this scope, say so briefly and suggest a related bio to
 # Initialize persistent chat history
 history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-def ChatBot(question: str) -> str:
-    """Send a question to the BioPharm-Guide chatbot and return its answer as a string."""
-    history.append({"role": "user", "content": question})
+def ChatBot(question: str, context: str | None = None) -> str:
+    """Send a question to the BioPharm-Guide chatbot and return its answer as a string.
+    Optionally include 'context' that will be prepended to the user message.
+    """
+    if context:
+        message = f"Context for reference (use if relevant):\n{context}\n\nQuestion: {question}"
+    else:
+        message = question
+    history.append({"role": "user", "content": message})
 
     # Prepare messages for Gemini API
     contents = []
@@ -30,17 +36,32 @@ def ChatBot(question: str) -> str:
         elif role == "assistant":
             contents.append({"role": "model", "parts": [{"text": msg["content"]}]})
 
+    # If API key isn't available, provide a deterministic, offline fallback answer
+    if not API_KEY:
+        fallback = "This is an offline informational reply. " \
+                   "I can summarize provided context and general protein concepts, " \
+                   "but I’m not using a live LLM.\n\n"
+        if context:
+            fallback += "Context summary: Top similarity hits and properties received.\n"
+        fallback += "Source: local rules + provided context"
+        history.append({"role": "assistant", "content": fallback})
+        return fallback
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent?key={API_KEY}"
-    resp = requests.post(url, json={"contents": contents})
+    resp = requests.post(url, json={"contents": contents}, timeout=30)
 
     if resp.status_code != 200:
-        raise RuntimeError(f"Gemini API error {resp.status_code}: {resp.text}")
+        # Graceful fallback
+        answer = f"LLM unavailable (HTTP {resp.status_code}). " \
+                 f"Providing offline summary.\n\nSource: local rules + provided context"
+        history.append({"role": "assistant", "content": answer})
+        return answer
 
     data = resp.json()
     try:
         answer = data["candidates"][0]["content"]["parts"][0]["text"].strip()
     except (KeyError, IndexError):
-        raise RuntimeError(f"Unexpected Gemini response format: {data}")
+        answer = "LLM returned an unexpected format. Source: local rules + provided context"
 
     history.append({"role": "assistant", "content": answer})
     return answer

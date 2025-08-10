@@ -9,6 +9,9 @@ function App() {
     const [colorScheme, setColorScheme] = useState('spectrum');
     const [chatMessage, setChatMessage] = useState('');
     const [chatResponse, setChatResponse] = useState('');
+    const [simLoading, setSimLoading] = useState(false);
+    const [simResults, setSimResults] = useState([]);
+    const [simProps, setSimProps] = useState(null);
 
     // Load default protein on mount
     useEffect(() => {
@@ -113,6 +116,38 @@ function App() {
     }
 };
 
+    const handleFindSimilar = async () => {
+        if (!sequence.trim()) return;
+        if (sequence.trim().length < 10) {
+            alert('Sequence too short for similarity search (min 10 amino acids).');
+            return;
+        }
+        setSimLoading(true);
+        try {
+            const res = await fetch('/api/similarity', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sequence })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setSimResults(data.hits || []);
+                setSimProps(data.top_properties || null);
+            } else {
+                setSimResults([]);
+                setSimProps(null);
+                alert(data.error || 'Similarity search failed.');
+            }
+        } catch (e) {
+            console.error('Similarity search error:', e);
+            setSimResults([]);
+            setSimProps(null);
+            alert('Similarity search error.');
+        } finally {
+            setSimLoading(false);
+        }
+    };
+
     const handleChatSend = async () => {
         if (!chatMessage.trim()) return;
 
@@ -140,7 +175,9 @@ function App() {
                 sequence={sequence}
                 setSequence={setSequence}
                 onGenerate={handleGenerateStructure}
+                onFindSimilar={handleFindSimilar}
                 loading={loading}
+                simLoading={simLoading}
             />
             
             <div className="main-container">
@@ -159,6 +196,9 @@ function App() {
                     setVisualizationStyle={setVisualizationStyle}
                     colorScheme={colorScheme}
                     setColorScheme={setColorScheme}
+                    simResults={simResults}
+                    simProps={simProps}
+                    simLoading={simLoading}
                 />
             </div>
             
@@ -174,7 +214,7 @@ function App() {
 }
 
 // Top Bar Component
-function TopBar({ sequence, setSequence, onGenerate, loading }) {
+function TopBar({ sequence, setSequence, onGenerate, onFindSimilar, loading, simLoading }) {
     return (
         <div className="top-bar">
             <div className="app-title">
@@ -207,6 +247,25 @@ function TopBar({ sequence, setSequence, onGenerate, loading }) {
                     <>
                         <i className="fas fa-play"></i>
                         Generate
+                    </>
+                )}
+            </button>
+
+            <button
+                className="generate-btn"
+                onClick={onFindSimilar}
+                disabled={simLoading || !sequence.trim()}
+                style={{ marginLeft: '0.5rem' }}
+            >
+                {simLoading ? (
+                    <>
+                        <div className="loading-spinner" style={{ width: '1rem', height: '1rem', margin: 0 }}></div>
+                        Searching...
+                    </>
+                ) : (
+                    <>
+                        <i className="fas fa-search"></i>
+                        Find Similar
                     </>
                 )}
             </button>
@@ -393,7 +452,7 @@ function ProteinViewer({ proteinData, visualizationStyle, colorScheme, loading }
 }
 
 // Sidebar Component
-function Sidebar({ proteinData, visualizationStyle, setVisualizationStyle, colorScheme, setColorScheme }) {
+function Sidebar({ proteinData, visualizationStyle, setVisualizationStyle, colorScheme, setColorScheme, simResults, simProps, simLoading }) {
     const styles = [
     { value: 'stick', label: 'Stick', icon: 'fas fa-grip-lines' },
     { value: 'sphere', label: 'Spacefill', icon: 'fas fa-dot-circle' },
@@ -493,6 +552,35 @@ function Sidebar({ proteinData, visualizationStyle, setVisualizationStyle, color
                     </div>
                 </div>
             )}
+
+            <div className="sidebar-section">
+                <h3>
+                    <i className="fas fa-search"></i>
+                    Similarity Search
+                </h3>
+                {simLoading && (
+                    <div className="loading" style={{ padding: '0.5rem 0' }}>
+                        <div className="loading-spinner"></div>
+                        <p>Searching...</p>
+                    </div>
+                )}
+                {!simLoading && (!simResults || simResults.length === 0) && (
+                    <p style={{ opacity: 0.7 }}>Run "Find Similar" to see top matches.</p>
+                )}
+
+                {simProps && (
+                    <div style={{ marginTop: '0.5rem' }}>
+                        <h4 style={{ margin: '0.25rem 0' }}>Top-hit properties</h4>
+                        <div className="info-grid">
+                            <div className="info-item"><span className="info-label">Length</span><span className="info-value">{simProps.length}</span></div>
+                            <div className="info-item"><span className="info-label">Mass</span><span className="info-value">{simProps.mass_Da} Da</span></div>
+                            <div className="info-item"><span className="info-label">Hydropathy</span><span className="info-value">{simProps.hydropathy_KD}</span></div>
+                            <div className="info-item"><span className="info-label">Net charge ~pH7</span><span className="info-value">{simProps.net_charge_pH7_approx}</span></div>
+                            <div className="info-item"><span className="info-label">Aromatic</span><span className="info-value">{simProps.aromatic_count}</span></div>
+                        </div>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
