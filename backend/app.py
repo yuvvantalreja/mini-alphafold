@@ -504,9 +504,9 @@ def similarity_api():
         if not is_valid_protein_sequence(query):
             logger.warning(json.dumps({'event': 'similarity_api.invalid_seq', 'rid': rid}))
             return jsonify({'error': 'Invalid protein sequence (use standard amino acids).'}), 400
-        if len(query) > 100:
-            logger.warning(json.dumps({'event': 'similarity_api.too_long', 'rid': rid, 'len': len(query)}))
-            return jsonify({'error': 'Sequence too long for this search (max 100 aa).'}), 400
+        # if len(query) > 100:
+        #     logger.warning(json.dumps({'event': 'similarity_api.too_long', 'rid': rid, 'len': len(query)}))
+        #     return jsonify({'error': 'Sequence too long for this search (max 100 aa).'}), 400
         if len(query) < 10:
             logger.warning(json.dumps({'event': 'similarity_api.too_short', 'rid': rid, 'len': len(query)}))
             return jsonify({'error': 'Sequence too short for similarity search (min 10 aa).'}), 400
