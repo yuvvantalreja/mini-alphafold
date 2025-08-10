@@ -1,0 +1,5 @@
+TITLE     PROTEIN STRUCTURE
+HETATM    1  S    SO2 A   1       0.000   0.000   0.000  1.00 20.00           S
+HETATM    2  O1   SO2 A   1       0.720   1.235   0.000  1.00 20.00           O
+HETATM    3  O2   SO2 A   1       0.720  -1.235   0.000  1.00 20.00           O
+END

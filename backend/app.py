@@ -29,6 +29,17 @@ from similarity import (
     smith_waterman,
     percent_identity,
 )
+# Import docking functionality from parent directory
+import sys
+import os
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
+try:
+    from predict_and_rank import run_pipeline as run_docking_pipeline
+    print("Successfully imported docking functionality")
+except Exception as e:
+    print(f"Warning: Could not import docking functionality: {e}")
+    run_docking_pipeline = None
 
 
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
@@ -550,6 +561,279 @@ def receive_sequence():
         'filename': finalpath,
         'structure': structure_data
     })
+
+@app.route('/api/dock', methods=['POST'])
+def protein_dock():
+    """Handle protein-protein docking requests"""
+    try:
+        if run_docking_pipeline is None:
+            return jsonify({'error': 'Docking functionality not available'}), 503
+            
+        # Check if we have file uploads
+        if 'target_file' in request.files and 'ligand_file' in request.files:
+            target_file = request.files['target_file']
+            ligand_file = request.files['ligand_file']
+            
+            if target_file.filename == '' or ligand_file.filename == '':
+                return jsonify({'error': 'Both target and ligand files must be provided'}), 400
+            
+            if not (allowed_file(target_file.filename) and allowed_file(ligand_file.filename)):
+                return jsonify({'error': 'Both files must be PDB format'}), 400
+                
+            # Save uploaded files
+            target_filename = secure_filename(target_file.filename)
+            ligand_filename = secure_filename(ligand_file.filename)
+            target_path = os.path.join(app.config['UPLOAD_FOLDER'], f"dock_target_{uuid.uuid4().hex[:8]}_{target_filename}")
+            ligand_path = os.path.join(app.config['UPLOAD_FOLDER'], f"dock_ligand_{uuid.uuid4().hex[:8]}_{ligand_filename}")
+            
+            target_file.save(target_path)
+            ligand_file.save(ligand_path)
+            
+        else:
+            # Check for file paths in JSON data
+            data = request.get_json()
+            if not data:
+                return jsonify({'error': 'No files or data provided'}), 400
+                
+            target_path = data.get('target_path')
+            ligand_path = data.get('ligand_path')
+            
+            if not target_path or not ligand_path:
+                return jsonify({'error': 'Target and ligand file paths must be provided'}), 400
+                
+            # Check if files exist
+            if not os.path.exists(target_path) or not os.path.exists(ligand_path):
+                return jsonify({'error': 'One or both specified files do not exist'}), 404
+        
+        # Get docking parameters
+        data = data if 'data' in locals() else request.form
+        num_poses = int(data.get('num_poses', 5))
+        seed = int(data.get('seed', 42))
+        
+        # Create output directory for this docking run
+        dock_id = uuid.uuid4().hex[:8]
+        out_dir = os.path.join(app.config['UPLOAD_FOLDER'], f'docking_{dock_id}')
+        
+        # Run docking pipeline
+        try:
+            df = run_docking_pipeline(target_path, ligand_path, out_dir, num_poses=num_poses, seed=seed)
+            
+            # Parse the best pose for structure data
+            best_pose_path = os.path.join(out_dir, 'best_pose.pdb')
+            if os.path.exists(best_pose_path):
+                parser = PDBParser()
+                best_structure = parser.parse_pdb_file(best_pose_path)
+            else:
+                best_structure = None
+            
+            # Convert DataFrame to dict for JSON response
+            results = df.to_dict('records')
+            
+            # Add file paths for download
+            for i, result in enumerate(results):
+                pose_id = result['Pose ID']
+                pose_filename = f'pose_{pose_id}.pdb'
+                result['pose_download_path'] = f'/api/download/{dock_id}/{pose_filename}'
+            
+            response = {
+                'success': True,
+                'dock_id': dock_id,
+                'results': results,
+                'best_pose_structure': best_structure,
+                'best_pose_download': f'/api/download/{dock_id}/best_pose.pdb',
+                'summary_download': f'/api/download/{dock_id}/pose_ranking.csv'
+            }
+            
+            return jsonify(response)
+            
+        except Exception as e:
+            return jsonify({'error': f'Docking failed: {str(e)}'}), 500
+            
+        finally:
+            # Clean up uploaded files if they were temporary
+            if 'target_file' in request.files:
+                try:
+                    if os.path.exists(target_path):
+                        os.remove(target_path)
+                    if os.path.exists(ligand_path):
+                        os.remove(ligand_path)
+                except Exception:
+                    pass
+    
+    except Exception as e:
+        return jsonify({'error': f'Docking request failed: {str(e)}'}), 500
+
+@app.route('/api/download/<dock_id>/<filename>')
+def download_docking_file(dock_id, filename):
+    """Download docking result files"""
+    try:
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], f'docking_{dock_id}', filename)
+        if not os.path.exists(file_path):
+            return jsonify({'error': 'File not found'}), 404
+            
+        from flask import send_file
+        return send_file(file_path, as_attachment=True)
+        
+    except Exception as e:
+        return jsonify({'error': f'Download failed: {str(e)}'}), 500
+
+@app.route('/api/ligand/upload', methods=['POST'])
+def upload_ligand():
+    """Handle ligand file uploads (SDF, PDB, MOL, MOL2)"""
+    try:
+        if 'ligand_file' not in request.files:
+            return jsonify({'error': 'No ligand file provided'}), 400
+        
+        file = request.files['ligand_file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        # Check file extension
+        filename = secure_filename(file.filename)
+        file_ext = filename.rsplit('.', 1)[1].lower() if '.' in filename else ''
+        
+        if file_ext not in ['sdf', 'pdb', 'mol', 'mol2']:
+            return jsonify({'error': 'Invalid file type. Please upload SDF, PDB, MOL, or MOL2 files.'}), 400
+        
+        # Save file temporarily
+        ligand_id = uuid.uuid4().hex[:8]
+        ligand_filename = f"ligand_{ligand_id}_{filename}"
+        ligand_path = os.path.join(app.config['UPLOAD_FOLDER'], ligand_filename)
+        file.save(ligand_path)
+        
+        try:
+            # Parse ligand file based on format
+            if file_ext == 'pdb':
+                # Use existing PDB parser
+                parser = PDBParser()
+                structure_data = parser.parse_pdb_file(ligand_path)
+            else:
+                # For SDF/MOL files, create a basic structure representation
+                # This is a simplified parser - in production you'd want RDKit
+                structure_data = parse_ligand_file(ligand_path, file_ext)
+            
+            # Store the file path for later use in docking
+            structure_data['_ligand_file_path'] = ligand_path
+            
+            return jsonify({
+                'success': True,
+                'ligand_id': ligand_id,
+                'filename': filename,
+                'structure': structure_data
+            })
+            
+        except Exception as e:
+            # Clean up file on error
+            if os.path.exists(ligand_path):
+                os.remove(ligand_path)
+            return jsonify({'error': f'Failed to parse ligand file: {str(e)}'}), 400
+    
+    except Exception as e:
+        return jsonify({'error': f'Ligand upload failed: {str(e)}'}), 500
+
+def parse_ligand_file(file_path: str, file_ext: str) -> dict:
+    """Basic ligand file parser for SDF/MOL formats"""
+    atoms = []
+    bonds = []
+    
+    try:
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+        
+        if file_ext in ['sdf', 'mol']:
+            # Simple MOL/SDF parser
+            if len(lines) < 4:
+                raise ValueError("Invalid MOL/SDF file format")
+            
+            # Parse counts line (line 4)
+            counts_line = lines[3].strip()
+            if len(counts_line) >= 6:
+                try:
+                    atom_count = int(counts_line[:3].strip())
+                    bond_count = int(counts_line[3:6].strip())
+                except ValueError:
+                    raise ValueError("Invalid counts line in MOL file - non-numeric values")
+            else:
+                raise ValueError("Invalid counts line in MOL file")
+            
+            # Parse atoms
+            for i in range(4, 4 + atom_count):
+                if i >= len(lines):
+                    break
+                line = lines[i]
+                if len(line) >= 31:
+                    x = float(line[0:10].strip())
+                    y = float(line[10:20].strip()) 
+                    z = float(line[20:30].strip())
+                    element = line[31:34].strip()
+                    
+                    atoms.append({
+                        'serial': i - 3,
+                        'name': element + str(i - 3),
+                        'res_name': 'LIG',
+                        'chain': 'L',
+                        'res_seq': 1,
+                        'x': x,
+                        'y': y,
+                        'z': z,
+                        'element': element,
+                        'occupancy': 1.0,
+                        'temp_factor': 20.0
+                    })
+        
+        elif file_ext == 'mol2':
+            # Basic MOL2 parser
+            in_atoms = False
+            atom_count = 0
+            
+            for line in lines:
+                line = line.strip()
+                if line == '@<TRIPOS>ATOM':
+                    in_atoms = True
+                    continue
+                elif line.startswith('@<TRIPOS>') and line != '@<TRIPOS>ATOM':
+                    in_atoms = False
+                    continue
+                
+                if in_atoms and line:
+                    parts = line.split()
+                    if len(parts) >= 6:
+                        atom_count += 1
+                        atoms.append({
+                            'serial': atom_count,
+                            'name': parts[1],
+                            'res_name': 'LIG',
+                            'chain': 'L', 
+                            'res_seq': 1,
+                            'x': float(parts[2]),
+                            'y': float(parts[3]),
+                            'z': float(parts[4]),
+                            'element': parts[5].split('.')[0],
+                            'occupancy': 1.0,
+                            'temp_factor': 20.0
+                        })
+        
+        if not atoms:
+            raise ValueError("No atoms found in ligand file")
+        
+        return {
+            'header': {
+                'title': 'LIGAND',
+                'resolution': None,
+                'experiment_type': 'LIGAND',
+                'organism': None
+            },
+            'atoms': atoms,
+            'stats': {
+                'atom_count': len(atoms),
+                'chain_count': 1,
+                'residue_count': 1,
+                'bond_count': len(bonds)
+            }
+        }
+        
+    except Exception as e:
+        raise ValueError(f"Error parsing ligand file: {str(e)}")
     
 
 if __name__ == '__main__':

@@ -144,7 +144,7 @@ class PDBParser:
                 'alt_loc': line[16].strip(),
                 'res_name': line[17:20].strip(),
                 'chain': line[21].strip(),
-                'res_seq': int(line[22:26].strip()),
+                'res_seq': int(line[22:26].strip()) if line[22:26].strip().isdigit() else 1,
                 'x': float(line[30:38].strip()),
                 'y': float(line[38:46].strip()),
                 'z': float(line[46:54].strip()),

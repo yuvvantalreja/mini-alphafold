@@ -1,0 +1,5 @@
+HETATM    1  C   COM A   1       0.000   0.000  -0.564  1.00  0.00           C
+HETATM    2  O   COM A   1       0.000   0.000   0.564  1.00  0.00           O
+CONECT    1    2
+CONECT    2    1
+END
