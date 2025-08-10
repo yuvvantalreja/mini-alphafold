@@ -151,15 +151,19 @@ function App() {
     const handleChatSend = async () => {
         if (!chatMessage.trim()) return;
 
-        // Send message to backend and get response
+        // Send message to backend and get response, include current sequence and simProps as context hints
         const res = await fetch('/api/chat', {
             method: 'POST',
             headers: {'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: chatMessage })
+            body: JSON.stringify({ 
+                message: chatMessage,
+                sequence: sequence || '',
+                simProps: simProps || null
+            })
         });
-        const data = await res.json();
+    const data = await res.json();
 
-        setChatResponse(data.response); // Show backend response as AI reply
+    setChatResponse((data.context ? `Context: ${data.context}\n\n` : '') + (data.response || ''));
         setChatMessage('');
     };
 
@@ -590,7 +594,7 @@ function ChatSection({ message, setMessage, onSend, response, onKeyPress }) {
     return (
         <div className="chat-section">
             {response && (
-                <div className="chat-response">
+                <div className="chat-response" style={{ whiteSpace: 'pre-wrap' }}>
                     <strong>AI:</strong> {response}
                 </div>
             )}
