@@ -5,7 +5,7 @@ function App() {
     const [proteinData, setProteinData] = useState(null);
     const [loading, setLoading] = useState(false);
     const [sequence, setSequence] = useState('');
-    const [visualizationStyle, setVisualizationStyle] = useState('cartoon');
+    const [visualizationStyle, setVisualizationStyle] = useState('sphere');
     const [colorScheme, setColorScheme] = useState('spectrum');
     const [chatMessage, setChatMessage] = useState('');
     const [chatResponse, setChatResponse] = useState('');
@@ -19,7 +19,7 @@ function App() {
         setLoading(true);
         try {
             // Load hemoglobin sample
-            const response = await fetch('/api/sample/hemoglobin');
+            const response = await fetch('/api/sample/sample_data/hemoglobin.pdb');
             const data = await response.json();
 
             if (data.success) {
@@ -88,32 +88,44 @@ function App() {
     };
 
     const handleGenerateStructure = async () => {
-        if (!sequence.trim()) return;
-        
-        setLoading(true);
-        try {
-            // TODO: Connect to your backend API that generates PDB from sequence
-            // For now, simulate the call and reload default protein
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            await loadDefaultProtein();
-        } catch (error) {
-            console.error('Error generating structure:', error);
-        } finally {
-            setLoading(false);
+    if (!sequence.trim()) return;
+
+    setLoading(true);
+    try {
+        const res = await fetch('/api/sequence', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sequence })
+        });
+        const data = await res.json();
+        if (data.success) {
+            setProteinData(data.structure);
+        } else {
+            setProteinData(null);
+            alert(data.error || 'Failed to generate structure.');
         }
-    };
+    } catch (error) {
+        console.error('Error generating structure:', error);
+        setProteinData(null);
+        alert('Error generating structure.');
+    } finally {
+        setLoading(false);
+    }
+};
 
     const handleChatSend = async () => {
         if (!chatMessage.trim()) return;
-        
-        try {
-            // TODO: Connect to your LLM backend
-            // For now, always return "Hello" as requested
-            setChatResponse('Hello');
-            setChatMessage('');
-        } catch (error) {
-            console.error('Error sending chat message:', error);
-        }
+
+        // Send message to backend and get response
+        const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: chatMessage })
+        });
+        const data = await res.json();
+
+        setChatResponse(data.response); // Show backend response as AI reply
+        setChatMessage('');
     };
 
     const handleKeyPress = (e, handler) => {
@@ -383,18 +395,17 @@ function ProteinViewer({ proteinData, visualizationStyle, colorScheme, loading }
 // Sidebar Component
 function Sidebar({ proteinData, visualizationStyle, setVisualizationStyle, colorScheme, setColorScheme }) {
     const styles = [
-        { value: 'cartoon', label: 'Cartoon', icon: 'fas fa-ribbon' },
-        { value: 'stick', label: 'Stick', icon: 'fas fa-grip-lines' },
-        { value: 'sphere', label: 'Spacefill', icon: 'fas fa-dot-circle' },
-        { value: 'line', label: 'Backbone', icon: 'fas fa-project-diagram' }
+    { value: 'stick', label: 'Stick', icon: 'fas fa-grip-lines' },
+    { value: 'sphere', label: 'Spacefill', icon: 'fas fa-dot-circle' },
+    { value: 'line', label: 'Backbone', icon: 'fas fa-project-diagram' }
     ];
 
-    const colors = [
-        { value: 'spectrum', label: 'Spectrum' },
-        { value: 'chain', label: 'By Chain' },
-        { value: 'residue', label: 'By Residue' },
-        { value: 'element', label: 'By Element' }
-    ];
+    // const colors = [
+    //     { value: 'spectrum', label: 'Spectrum' },
+    //     { value: 'chain', label: 'By Chain' },
+    //     { value: 'residue', label: 'By Residue' },
+    //     { value: 'element', label: 'By Element' }
+    // ];
 
     return (
         <div className="sidebar">
@@ -420,7 +431,7 @@ function Sidebar({ proteinData, visualizationStyle, setVisualizationStyle, color
                     </div>
                 </div>
                 
-                <div className="control-group">
+                {/* <div className="control-group">
                     <label className="control-label">Color Scheme</label>
                     <select 
                         className="color-select"
@@ -433,7 +444,7 @@ function Sidebar({ proteinData, visualizationStyle, setVisualizationStyle, color
                             </option>
                         ))}
                     </select>
-                </div>
+                </div> */}
             </div>
 
             {proteinData && (

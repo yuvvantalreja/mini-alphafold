@@ -1,9 +1,17 @@
-from flask import Flask, request, jsonify, render_template
+
+
+import matplotlib
+matplotlib.use('Agg')
+
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 from flask_cors import CORS
 import os
 import json
 from werkzeug.utils import secure_filename
 from pdb_parser import PDBParser
+import chatbot
+import pdb_script
+
 
 app = Flask(__name__, template_folder='../templates', static_folder='../static')
 CORS(app)
@@ -65,11 +73,11 @@ def upload_file():
     except Exception as e:
         return jsonify({'error': f'Upload failed: {str(e)}'}), 500
 
-@app.route('/api/sample/<sample_name>')
-def load_sample(sample_name):
+@app.route('/api/sample/<sample_path>')
+def load_sample(sample_path):
     """Load a sample protein structure"""
     try:
-        sample_path = os.path.join('../sample_data', f'{sample_name}.pdb')
+        # sample_path = os.path.join('../sample_data', f'{sample_name}.pdb')
         if not os.path.exists(sample_path):
             return jsonify({'error': 'Sample not found'}), 404
         
@@ -78,7 +86,7 @@ def load_sample(sample_name):
         
         return jsonify({
             'success': True,
-            'filename': f'{sample_name}.pdb',
+            'filename': f'{sample_path}',
             'structure': structure_data
         })
     
@@ -108,5 +116,43 @@ def list_samples():
     except Exception as e:
         return jsonify({'error': f'Failed to list samples: {str(e)}'}), 500
 
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    data = request.get_json()
+    user_message = data.get('message', '')
+    return jsonify({'response': chatbot.ChatBot(user_message)})
+    #return jsonify({'response': "Wasgood"})
+
+@app.route('/api/sequence', methods=['POST'])
+def receive_sequence():
+    data = request.get_json()
+    sequence = data.get('sequence', '')
+    print(f"Received sequence: {sequence}")
+    jobname = pdb_script.GeneratePDB(sequence)
+
+    if jobname == -1:
+        return jsonify({'error': 'Invalid sequence provided'}), 400
+
+    # Search for pdb files in the jobname directory
+    pdb_files = [f for f in os.listdir(jobname) if f.endswith('.pdb')]
+    if not pdb_files:
+        return jsonify({'error': 'No PDB files generated for the provided sequence'}), 404
+
+    finalpath = os.path.join(jobname, pdb_files[0])
+
+    # Parse the PDB file and return structure data directly
+    parser = PDBParser()
+    structure_data = parser.parse_pdb_file(finalpath)
+    return jsonify({
+        'success': True,
+        'filename': finalpath,
+        'structure': structure_data
+    })
+    
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8000)
+
+
+
+
